@@ -1,0 +1,1 @@
+(()=>{let o=window.alert.bind(window);window.alert=function(e){if((e||"").toLowerCase().includes("errore"))try{sessionStorage.setItem("_scorri_lesson_url",location.href)}catch{}else o(e)}})();

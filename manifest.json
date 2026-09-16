@@ -1,0 +1,42 @@
+{
+   "action": {
+      "default_icon": {
+         "128": "assets/icons/icon-128.png",
+         "16": "assets/icons/icon-16.png",
+         "48": "assets/icons/icon-48.png"
+      },
+      "default_popup": "popup/popup.html"
+   },
+   "background": {
+      "service_worker": "background/background.js"
+   },
+   "content_scripts": [ {
+      "js": [ "content/patch.js" ],
+      "matches": [ "https://*.click/*" ],
+      "run_at": "document_start",
+      "world": "MAIN"
+   }, {
+      "js": [ "content/content.js" ],
+      "matches": [ "https://*.click/*" ],
+      "run_at": "document_idle"
+   } ],
+   "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://*.cloudfront.net/;"
+   },
+   "description": "Autoplay videolezioni Pegaso, Mercatorum e San Raffaele - Automatizza lo scorrimento delle videolezioni",
+   "host_permissions": [ "https://*.cloudfront.net/*" ],
+   "icons": {
+      "128": "assets/icons/icon-128.png",
+      "16": "assets/icons/icon-16.png",
+      "48": "assets/icons/icon-48.png"
+   },
+   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAmwUtSm/Byy+1YLY1Z8+tHZIMrrA0RseQi9LXm6FkUYSEkTOqwcvQnqIxQcFOQqTdTTKc7xpvn36bpdA8oYaVyF2+/Ae8ceTJfn8fveWD7X/k8Gfa0cdAHaAZDrBfuju5dKhOhmRXkHFiluv70VaWI3UV2QMMxipx/Lvptbg6ped7sSbbWP0N+l1jcDvXtuoo9jkgHHTgRQg7fss0YJq8xwChhNxmCmop3H2p/RePFibnp9/FBOnBKi+iNMsidcX4cKCSFxVVjs9nceQSCpNdmKOYWostDqwe4+Y/Zys9HN2QWlqy0exj3GNlzGhmygA9d+sLsxtWLJ062MKN6g3QWwIDAQAB",
+   "manifest_version": 3,
+   "name": "unipegaso unlocker",
+   "permissions": [ "tabs", "storage", "downloads" ],
+   "version": "1.6.8",
+   "web_accessible_resources": [ {
+      "matches": [ "https://*.click/*" ],
+      "resources": [ "assets/icons/*" ]
+   } ]
+}
