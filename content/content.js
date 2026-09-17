@@ -770,8 +770,21 @@ async function Rt() {
 }
 function getAllModuleElements() {
   var b = document.body;
+  // 1. Cerca i contenitori dei macro-moduli nel layout di navigazione (divide-y o flex-wrap bg-platform-light-gray)
+  var rawContainers = Array.from(b.querySelectorAll('.divide-y > .flex-wrap, .divide-y > div.bg-platform-light-gray, div.flex-wrap.bg-platform-light-gray'));
+  var moduleContainers = rawContainers.filter(function(el) {
+    return el.querySelector('.cursor-pointer') || el.classList.contains('cursor-pointer');
+  });
+
+  if (moduleContainers.length > 0) {
+    return moduleContainers.map(function(c) {
+      return c.querySelector('.cursor-pointer.relative.align-middle') || c.querySelector('.cursor-pointer') || c;
+    });
+  }
+
+  // 2. Fallback per span contenenti "modulo X" o "sezione X"
   var spans = Array.from(b.querySelectorAll("span")).filter(function(s) {
-    return /^modulo\s*\d+/i.test((s.textContent || "").trim());
+    return /^(?:modulo|sezione)\s*\d+/i.test((s.textContent || "").trim());
   });
   if (spans.length > 0) {
     return spans.map(function(s) {
@@ -792,7 +805,13 @@ async function k(t = null) {
     var activeModIdx = 0;
     for (var i = 0; i < modEls.length; i++) {
       var chevronUp = modEls[i].querySelector('[id*="chevron-up"], path[d*="896.707"]');
-      if (chevronUp) {
+      var modContainer = modEls[i].closest('.flex-wrap.bg-platform-light-gray') || modEls[i].closest('.flex-wrap') || modEls[i].parentElement;
+      var hasActiveItem = modContainer && (
+        modContainer.querySelector('.visible.bg-platform-primary') ||
+        modContainer.querySelector('.border-t.text-platform-text') ||
+        modContainer.querySelector('[id*="chevron-up"], path[d*="896.707"]')
+      );
+      if (chevronUp || hasActiveItem) {
         activeModIdx = i;
         break;
       }
@@ -806,16 +825,11 @@ async function k(t = null) {
 }
 
 async function $(t = 0) {
-  // Se esistono più moduli e non siamo nel modulo desiderato, espandilo se necessario
   var modEls = getAllModuleElements();
   var container = document.body;
   if (modEls.length > 0 && modEls[t]) {
     var mEl = modEls[t];
-    // Trova il blocco contenitore dei capitoli del modulo t
-    var mParent = mEl.parentElement;
-    while (mParent && mParent !== document.body && !mParent.querySelector('.bg-white.text-base.border')) {
-      mParent = mParent.parentElement;
-    }
+    var mParent = mEl.closest('.flex-wrap.bg-platform-light-gray') || mEl.closest('.flex-wrap') || mEl.parentElement;
     if (mParent && mParent !== document.body) {
       container = mParent;
     }
@@ -977,11 +991,13 @@ async function bt(t) {
   var modEls = getAllModuleElements();
   if (modEls.length > 0 && modEls[t]) {
     var targetMod = modEls[t];
-    // Se ha chevron-up è già aperto
-    if (targetMod.querySelector('[id*="chevron-up"], path[d*="896.707"]')) {
+    var modContainer = targetMod.closest('.flex-wrap.bg-platform-light-gray') || targetMod.closest('.flex-wrap') || targetMod.parentElement;
+    // Se ha chevron-up o ha capitoli già visibili, è già aperto
+    if (targetMod.querySelector('[id*="chevron-up"], path[d*="896.707"]') || (modContainer && modContainer.querySelector('.bg-white.text-base.border'))) {
       return !0;
     }
-    dispatchClick(targetMod.querySelector("span") || targetMod);
+    var clickEl = targetMod.querySelector(".cursor-pointer") || targetMod.querySelector("span") || targetMod;
+    dispatchClick(clickEl);
     await x(2000);
     return !0;
   }
