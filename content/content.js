@@ -839,40 +839,10 @@ function isElVisible(el) {
 // e degrada al fallback "corso piatto", che fa lavorare lo scorrimento sull'intera pagina.
 function findModuleContainer(mEl, allModEls) {
   if (!mEl) return null;
-  var mods = allModEls || [];
-  var isValid = function (c) {
-    if (!c || c === document.body) return !1;
-    if (collectCapEls(c).length === 0) return !1;
-    var owned = 0;
-    for (var j = 0; j < mods.length; j++) if (c.contains(mods[j])) owned++;
-    return owned <= 1;
-  };
-
-  var candidates = [
-    mEl.closest(".flex-wrap.bg-platform-light-gray"),
-    mEl.closest(".flex-wrap"),
-    mEl.parentElement,
-  ];
-  for (var i = 0; i < candidates.length; i++) {
-    if (isValid(candidates[i])) return candidates[i];
-  }
-
-  // Nessun candidato "veloce" contiene i capitoli: risali finché non li trovi
-  var p = mEl.parentElement;
-  while (p && p !== document.body) {
-    if (isValid(p)) return p;
-    p = p.parentElement;
-  }
-
-  // Corso con un solo modulo: usare document.body è corretto
-  if (mods.length <= 1) return null;
-
-  // Multi-modulo senza container valido: meglio un container vuoto (-> ERR_GC_SCOPE
-  // e retry) che ricadere sull'intera pagina mescolando i capitoli degli altri moduli
   return (
-    candidates.find(function (c) {
-      return c && c !== document.body;
-    }) || null
+    mEl.closest(".flex-wrap.bg-platform-light-gray") ||
+    mEl.closest(".flex-wrap") ||
+    mEl.parentElement
   );
 }
 
@@ -1026,7 +996,9 @@ function resolveCapElByIndex(t, e) {
       ? findModuleContainer(modEls[t], modEls) || document
       : document;
   var capEls = collectCapEls(scope);
-  if (capEls.length === 0 && scope !== document) capEls = collectCapEls(document);
+  if (capEls.length === 0 && (!modEls || modEls.length <= 1) && scope !== document) {
+    capEls = collectCapEls(document);
+  }
   return capEls[e] || null;
 }
 async function l(t, e) {
@@ -1044,12 +1016,12 @@ async function l(t, e) {
 
   // Se il capitolo mostra "Loading..." o uno spinner asincrono, attendi il caricamento delle lezioni
   if (r && r !== document.body && r.tagName !== "BODY") {
-    for (let wait = 0; wait < 10; wait++) {
+    for (let wait = 0; wait < 15; wait++) {
       var rTxt = (r.textContent || "");
       var isLoading = /loading/i.test(rTxt) || !!r.querySelector('.loader, .loading, [class*="spin"], [class*="loader"]');
       var hasRows = !!r.querySelector('div.pr-3.py-2.flex.items-center, div[class*="hover:bg-platform-hover-light"]');
       if (hasRows || !isLoading) break;
-      await x(400);
+      await x(500);
     }
   }
 
@@ -1307,7 +1279,7 @@ async function s(n, i) {
   let e = [];
   let tentativi = 0;
   await x(2500);
-  for (let t = 0; t < 10; t++) {
+  for (let t = 0; t < 15; t++) {
     tentativi = t + 1;
     window.__ulTry = t; // marca il tentativo nei log di l()
     e = await l(n, i);
