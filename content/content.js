@@ -628,6 +628,9 @@ function F(t, e) {
   });
 }
 function M(t, e) {
+  try {
+    console.warn("[UnipegasoUnlocker] " + t + ":", e);
+  } catch (_) {}
   chrome.runtime.sendMessage({
     action: "WARNING",
     error: { code: t, message: e },
@@ -794,18 +797,99 @@ function getAllModuleElements() {
   return [];
 }
 
+const CAP_SEL_BASE = ".bg-white.text-base.border";
+
+// Unica definizione dell'elenco capitoli: $() tagga per posizione e resolveCapElByIndex()
+// ripiega sulla stessa posizione, quindi le due devono enumerare la STESSA lista nello
+// stesso ordine, altrimenti si reintroduce lo slittamento degli indici.
+const CAP_SEL_CASCADE = [
+  ".bg-white.text-base.border.font-sans.font-semibold",
+  CAP_SEL_BASE,
+  "div.cursor-pointer.flex.items-center.justify-between",
+  "div.font-semibold.cursor-pointer",
+  '[class*="border"][class*="font-semibold"][class*="cursor-pointer"]',
+];
+function collectCapEls(container) {
+  var root = container || document;
+  for (var i = 0; i < CAP_SEL_CASCADE.length; i++) {
+    var found = Array.from(root.querySelectorAll(CAP_SEL_CASCADE[i]));
+    if (found.length > 0) return found;
+  }
+  return [];
+}
+
+// Rimuove i tag di posizione lasciati da una precedente enumerazione: senza questo
+// due elementi possono condividere lo stesso selettore e P() risolve quello sbagliato.
+function clearStaleTags(attr, prefix) {
+  try {
+    // attenzione: [attr^=""] non matcha nulla, senza prefisso serve il selettore semplice
+    var sel = prefix ? "[" + attr + '^="' + prefix + '"]' : "[" + attr + "]";
+    document.querySelectorAll(sel).forEach(function (el) {
+      el.removeAttribute(attr);
+    });
+  } catch (_) {}
+}
+
+function isElVisible(el) {
+  return !!(el && (el.offsetParent !== null || el.offsetHeight > 0));
+}
+
+// Il contenitore di un modulo deve contenere i capitoli del modulo (e solo quelli):
+// se accettiamo un wrapper che contiene la sola intestazione, $() non trova capitoli
+// e degrada al fallback "corso piatto", che fa lavorare lo scorrimento sull'intera pagina.
+function findModuleContainer(mEl, allModEls) {
+  if (!mEl) return null;
+  var mods = allModEls || [];
+  var isValid = function (c) {
+    if (!c || c === document.body) return !1;
+    if (collectCapEls(c).length === 0) return !1;
+    var owned = 0;
+    for (var j = 0; j < mods.length; j++) if (c.contains(mods[j])) owned++;
+    return owned <= 1;
+  };
+
+  var candidates = [
+    mEl.closest(".flex-wrap.bg-platform-light-gray"),
+    mEl.closest(".flex-wrap"),
+    mEl.parentElement,
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    if (isValid(candidates[i])) return candidates[i];
+  }
+
+  // Nessun candidato "veloce" contiene i capitoli: risali finché non li trovi
+  var p = mEl.parentElement;
+  while (p && p !== document.body) {
+    if (isValid(p)) return p;
+    p = p.parentElement;
+  }
+
+  // Corso con un solo modulo: usare document.body è corretto
+  if (mods.length <= 1) return null;
+
+  // Multi-modulo senza container valido: meglio un container vuoto (-> ERR_GC_SCOPE
+  // e retry) che ricadere sull'intera pagina mescolando i capitoli degli altri moduli
+  return (
+    candidates.find(function (c) {
+      return c && c !== document.body;
+    }) || null
+  );
+}
+
 async function k(t = null) {
   var modEls = getAllModuleElements();
   if (modEls.length > 0) {
+    clearStaleTags("data-ul-mod", "");
     o.v = modEls.map(function(el, idx) {
       el.setAttribute("data-ul-mod", "" + idx);
       return '[data-ul-mod="' + idx + '"]';
     });
+    M("LOCAL_MOD", "Moduli rilevati: " + modEls.length);
 
     var activeModIdx = 0;
     for (var i = 0; i < modEls.length; i++) {
       var chevronUp = modEls[i].querySelector('[id*="chevron-up"], path[d*="896.707"]');
-      var modContainer = modEls[i].closest('.flex-wrap.bg-platform-light-gray') || modEls[i].closest('.flex-wrap') || modEls[i].parentElement;
+      var modContainer = findModuleContainer(modEls[i], modEls);
       var hasActiveItem = modContainer && (
         modContainer.querySelector('.visible.bg-platform-primary') ||
         modContainer.querySelector('.border-t.text-platform-text') ||
@@ -828,28 +912,29 @@ async function $(t = 0) {
   var modEls = getAllModuleElements();
   var container = document.body;
   if (modEls.length > 0 && modEls[t]) {
-    var mEl = modEls[t];
-    var mParent = mEl.closest('.flex-wrap.bg-platform-light-gray') || mEl.closest('.flex-wrap') || mEl.parentElement;
+    var mParent = findModuleContainer(modEls[t], modEls);
     if (mParent && mParent !== document.body) {
       container = mParent;
     }
   }
 
-  var capEls = Array.from(container.querySelectorAll('.bg-white.text-base.border.font-sans.font-semibold'));
-  if (capEls.length === 0) {
-    capEls = Array.from(container.querySelectorAll('.bg-white.text-base.border'));
-  }
-  if (capEls.length === 0) {
-    capEls = Array.from(container.querySelectorAll('div.cursor-pointer.flex.items-center.justify-between'));
-  }
-  if (capEls.length === 0) {
-    capEls = Array.from(container.querySelectorAll('div.font-semibold.cursor-pointer'));
-  }
-  if (capEls.length === 0) {
-    capEls = Array.from(container.querySelectorAll('[class*="border"][class*="font-semibold"][class*="cursor-pointer"]'));
+  var capEls = collectCapEls(container);
+
+  // Capitoli presenti ma tutti nascosti = modulo non realmente espanso: non ha senso
+  // enumerarli (nessun click andrebbe a segno e ogni capitolo darebbe ERR_GSC_SCOPE)
+  if (capEls.length > 0 && !capEls.some(isElVisible)) {
+    M("LOCAL_GC", "Modulo " + (t + 1) + ": " + capEls.length + " capitoli presenti ma nascosti (modulo chiuso)");
+    return { cp: [], pce: 0, cei: [] };
   }
 
   if (capEls.length > 0) {
+    // I tag vecchi restano in DOM: se il set di capitoli cambia (re-render, modulo diverso
+    // allo stesso indice), due elementi finiscono con lo stesso data-ul-cap e querySelector
+    // restituisce il primo in ordine di documento, cioè il capitolo sbagliato.
+    clearStaleTags("data-ul-cap", t + "_");
+    if (document.body.hasAttribute("data-ul-cap")) {
+      document.body.removeAttribute("data-ul-cap");
+    }
     var localCp = [], localCxp = [];
     capEls.forEach(function(el, idx) {
       el.setAttribute("data-ul-cap", t + "_" + idx);
@@ -900,6 +985,15 @@ async function $(t = 0) {
     };
   }
 
+  // Il fallback "corso piatto" vale SOLO se la pagina non ha davvero accordion capitoli.
+  // Se i capitoli esistono ma non li abbiamo trovati nel container, è un problema di scope:
+  // meglio fallire (e far ritentare s()) che trattare l'intera pagina come un unico capitolo.
+  var capNelDoc = collectCapEls(document).length;
+  if (capNelDoc > 0) {
+    N("ERR_GC_SCOPE", "macro=" + t + ": container senza capitoli ma la pagina ne contiene " + capNelDoc);
+    return { cp: [], pce: 0, cei: [] };
+  }
+
   // Fallback: se non ci sono accordion capitoli, verifica se ci sono lezioni dirette
   var hd = await ht();
   var scSel = hd?.sottoCapitolo || 'div[class*="border-t"][class*="hover:bg-platform-hover-light"]';
@@ -922,11 +1016,42 @@ async function $(t = 0) {
   N("ERR_GC_SCOPE", "macrocapitoloIdx=" + t);
   return { cp: [], pce: 0, cei: [] };
 }
+// Risolve il capitolo `e` del modulo `t` per posizione fra i capitoli vivi del modulo.
+// Serve quando il tag data-ul-cap è andato perso in un re-render: senza questo ripiego
+// il capitolo resta irrisolto e si finisce per cercare le lezioni nell'intera pagina.
+function resolveCapElByIndex(t, e) {
+  var modEls = getAllModuleElements();
+  var scope =
+    modEls.length > 0 && modEls[t]
+      ? findModuleContainer(modEls[t], modEls) || document
+      : document;
+  var capEls = collectCapEls(scope);
+  if (capEls.length === 0 && scope !== document) capEls = collectCapEls(document);
+  return capEls[e] || null;
+}
 async function l(t, e) {
   var a = await B();
   let p = o.h[t]?.[e],
     r = p ? (P(p, a) || P(p, document)) : null;
   r || (await $(t), (p = o.h[t]?.[e]), (r = p ? (P(p, a) || P(p, document)) : null));
+  if (!r || r === document.body || r.tagName === "BODY") {
+    var byIdx = resolveCapElByIndex(t, e);
+    if (byIdx) {
+      M("LOCAL_GSC", `Capitolo ${t}_${e} risolto per posizione (tag mancante)`);
+      r = byIdx;
+    }
+  }
+
+  // Se il capitolo mostra "Loading..." o uno spinner asincrono, attendi il caricamento delle lezioni
+  if (r && r !== document.body && r.tagName !== "BODY") {
+    for (let wait = 0; wait < 10; wait++) {
+      var rTxt = (r.textContent || "");
+      var isLoading = /loading/i.test(rTxt) || !!r.querySelector('.loader, .loading, [class*="spin"], [class*="loader"]');
+      var hasRows = !!r.querySelector('div.pr-3.py-2.flex.items-center, div[class*="hover:bg-platform-hover-light"]');
+      if (hasRows || !isLoading) break;
+      await x(400);
+    }
+  }
 
   var scEls = [];
 
@@ -951,7 +1076,17 @@ async function l(t, e) {
     }
   }
 
-  // Fallback se capitolo virtuale/diretto (senza accordion nel corso): cerca nel container generale
+  // Fallback se capitolo virtuale/diretto (senza accordion nel corso): cerca nel container generale.
+  // Se invece la pagina HA gli accordion, questa ricerca globale restituirebbe le lezioni di tutti
+  // i capitoli e lo scorrimento salterebbe da un capitolo all'altro: meglio fallire e ritentare.
+  if (
+    scEls.length === 0 &&
+    (!r || r === document.body || r.tagName === "BODY") &&
+    collectCapEls(document).length > 0
+  ) {
+    return (N("ERR_GSC_SCOPE", `macro=${t} cap=${e}: capitolo non risolto (accordion presenti)`), []);
+  }
+
   if (scEls.length === 0 && (!r || r === document.body || r.tagName === "BODY")) {
     var hd = await ht();
     var capSel = hd?.capitolo || ".bg-white.text-base.border.font-sans.font-semibold";
@@ -979,21 +1114,54 @@ async function l(t, e) {
 
   if (scEls.length > 0) {
     M("LOCAL_GSC", `Sotto-capitoli trovati per cap=${e}: ` + scEls.length);
+    clearStaleTags("data-ul-sc", t + "_" + e + "_");
     return scEls.map(function(el, idx) {
       el.setAttribute("data-ul-sc", t + "_" + e + "_" + idx);
       return '[data-ul-sc="' + t + '_' + e + '_' + idx + '"]';
     });
   }
 
-  return (N("ERR_GSC_SCOPE", `macro=${t} cap=` + e), []);
+  // Diagnostica: senza sapere COSA vede l() dentro il capitolo, un capitolo aperto che
+  // non restituisce lezioni è indistinguibile da un capitolo non risolto.
+  var diag = "";
+  try {
+    if (!r) {
+      diag = " | r=NULL (capitolo non risolto)";
+    } else {
+      var txt = (r.textContent || "").replace(/\s+/g, " ").trim().slice(0, 40);
+      var chev = r.querySelector('[id*="chevron-up"]')
+        ? "up"
+        : r.querySelector('[id*="chevron-down"]')
+          ? "down"
+          : "none";
+      diag =
+        ` | r="${txt}"` +
+        ` tag=${r.getAttribute && r.getAttribute("data-ul-cap")}` +
+        ` chevron=${chev}` +
+        ` contentTP=${!!r.querySelector(".border-t.text-platform-text")}` +
+        ` borderT=${r.querySelectorAll(".border-t").length}` +
+        ` rows=${r.querySelectorAll("div.pr-3.py-2.flex.items-center").length}` +
+        ` hover=${r.querySelectorAll('div[class*="hover:bg-platform-hover-light"]').length}` +
+        ` figli=${r.children.length}` +
+        ` h=${r.offsetHeight}` +
+        ` sib=${r.nextElementSibling ? (r.nextElementSibling.className || "").slice(0, 40) : "none"}`;
+    }
+    // discriminante: se le righe crescono nel documento ma non dentro r, stanno
+    // venendo montate FUORI dall'elemento che abbiamo taggato come capitolo
+    diag += ` rowsDoc=${document.querySelectorAll("div.pr-3.py-2.flex.items-center").length}`;
+  } catch (_) {}
+  return (N("ERR_GSC_SCOPE", `macro=${t} cap=${e} try=${window.__ulTry}${diag}`), []);
 }
 async function bt(t) {
   var modEls = getAllModuleElements();
   if (modEls.length > 0 && modEls[t]) {
     var targetMod = modEls[t];
-    var modContainer = targetMod.closest('.flex-wrap.bg-platform-light-gray') || targetMod.closest('.flex-wrap') || targetMod.parentElement;
-    // Se ha chevron-up o ha capitoli già visibili, è già aperto
-    if (targetMod.querySelector('[id*="chevron-up"], path[d*="896.707"]') || (modContainer && modContainer.querySelector('.bg-white.text-base.border'))) {
+    var modContainer = findModuleContainer(targetMod, modEls);
+    // Se ha chevron-up o ha capitoli già visibili, è già aperto.
+    // I capitoli devono essere VISIBILI e del modulo giusto: un container troppo ampio
+    // farebbe credere aperto un modulo ancora chiuso, e poi nessun capitolo si espande.
+    var ownVisibleCap = modContainer ? collectCapEls(modContainer).some(isElVisible) : !1;
+    if (targetMod.querySelector('[id*="chevron-up"], path[d*="896.707"]') || ownVisibleCap) {
       return !0;
     }
     var clickEl = targetMod.querySelector(".cursor-pointer") || targetMod.querySelector("span") || targetMod;
@@ -1006,28 +1174,39 @@ async function bt(t) {
 async function isChapterExpanded(e, a) {
   try {
     var chapters = (await $(e)).cp;
-    if (!chapters || chapters.length === 0) return !1;
-    var sel = chapters[a];
-    if (!sel) return !1;
-
-    var capEl = document.querySelector(sel);
+    var sel = chapters && chapters.length ? chapters[a] : null;
+    var capEl = sel ? document.querySelector(sel) : null;
+    if (!capEl || capEl === document.body) capEl = resolveCapElByIndex(e, a);
     if (!capEl || capEl === document.body) return !1;
 
-    // Se ha chevron-up, il capitolo è APERTO
-    if (capEl.querySelector('[id*="chevron-up"], path[d*="896.707"]')) {
-      return !0;
+    // Se il capitolo sta ancora caricando (mostra loader o "Loading..."), NON è ancora pronto/espanso
+    var txt = (capEl.textContent || "").trim();
+    var isLoading = /loading/i.test(txt) || !!capEl.querySelector('.loader, .loading, [class*="spin"], [class*="loader"]');
+
+    // Righe di lezione effettivamente visibili = capitolo aperto e pronto
+    var content = capEl.querySelector('.border-t.text-platform-text') || capEl.querySelector('.border-t');
+    if (content) {
+      var rows = content.querySelectorAll(
+        'div.pr-3.py-2.flex.items-center, div[class*="hover:bg-platform-hover-light"]'
+      );
+      for (var j = 0; j < rows.length; j++) {
+        if (isElVisible(rows[j])) return !0;
+      }
     }
 
-    // Se ha chevron-down, il capitolo è CHIUSO
-    if (capEl.querySelector('[id*="chevron-down"], path[d*="944.707"]')) {
+    // Se è in stato di caricamento asincrono, non considerarlo pronto
+    if (isLoading) {
       return !1;
     }
 
-    // Se ha il blocco lezioni visibile con righe effettive
-    var content = capEl.querySelector('.border-t.text-platform-text');
-    if (content && (content.offsetHeight > 0 || content.offsetParent !== null)) {
-      var rows = content.querySelectorAll('div.pr-3.py-2, div[class*="hover:bg-platform-hover-light"]');
-      if (rows.length > 0) return !0;
+    // Se ha chevron-up e non sta caricando
+    if (capEl.querySelector('[id*="chevron-up"], path[d*="896.707"]')) {
+      if (content || capEl.children.length > 1) return !0;
+    }
+
+    // Se ha chevron-down (e nessuna riga visibile), il capitolo è CHIUSO
+    if (capEl.querySelector('[id*="chevron-down"], path[d*="944.707"]')) {
+      return !1;
     }
 
     return !1;
@@ -1039,6 +1218,8 @@ async function c(e, a) {
   return isChapterExpanded(e, a);
 }
 window.isChapterExpanded = isChapterExpanded;
+// esposti per la diagnostica da console
+window.__ulDebug = { getAllModuleElements, findModuleContainer, collectCapEls, resolveCapElByIndex, isElVisible, getCapitoli: $, getLezioni: l };
 async function At() {
   return INTERNAL_MAP.gpbs.res;
 }
@@ -1082,7 +1263,15 @@ async function U(e, a = null) {
   (z("HMC1"), z("HMC2"));
   await Ot(e);
   z("handleMacrocapitolo3");
+  // $() può fallire temporaneamente mentre il modulo si sta aprendo/ri-renderizzando:
+  // ritenta prima di rinunciare al modulo
   var { cp: r, pce: n } = await $(e);
+  for (let t = 0; t < 4 && (!r || 0 === r.length); t++) {
+    await x(2000);
+    await Ot(e);
+    ({ cp: r, pce: n } = await $(e));
+  }
+  if (!r || 0 === r.length) M("ERR_MACRO_NO_CAP", "Modulo " + (e + 1) + ": nessun capitolo risolto");
   if (r && 0 !== r.length)
     if (
       (z("handleMacrocapitolo4"),
@@ -1121,15 +1310,28 @@ async function s(n, i) {
     await x(3000);
   }
   var t = await isChapterExpanded(n, i);
+  M("CAP_START", `mod ${n} cap ${i} • gia_espanso=${t}`);
   if (!t) await Nt(n, i);
 
   let e = [];
+  let tentativi = 0;
   await x(1500);
-  for (let t = 0; t < 6 && !(0 < (e = await l(n, i)).length); t++) {
-    if (t > 0 && !(await isChapterExpanded(n, i))) {
-      await Dt(n, i);
+  for (let t = 0; t < 8; t++) {
+    tentativi = t + 1;
+    window.__ulTry = t; // marca il tentativo nei log di l()
+    e = await l(n, i);
+    if (e.length > 0) break;
+    if (t > 0) {
+      var isExp = await isChapterExpanded(n, i);
+      if (!isExp) {
+        await Dt(n, i);
+      }
     }
     await x(1500);
+  }
+
+  if (0 === e.length) {
+    M("CAP_SKIP", `mod ${n} cap ${i} ABBANDONATO dopo ${tentativi} tentativi: nessuna lezione trovata`);
   }
 
   if (0 !== e.length) {
@@ -1218,8 +1420,10 @@ async function s(n, i) {
         var titleText = (titleEl?.innerText || titleEl?.textContent || "").replace(/\s+/g, ' ').trim().slice(0, 35);
 
         y(`▶️ Modulo ${n + 1} • Cap ${i + 1}/${totalCap} • Lezione ${a + 1}/${r.length}${titleText ? ` • ${titleText}` : ''}`, "info");
+        M("PLAY", `mod ${n} cap ${i}/${totalCap - 1} lez ${a}/${r.length - 1} • ${titleText}`);
 
         await Mt(n, i, a, el);
+        M("PLAY_END", `mod ${n} cap ${i} lez ${a} • ${titleText}`);
         await x(m || 1000);
       }
       a++;
@@ -1240,32 +1444,28 @@ async function Dt(t, e) {
   if (await c(t, e)) return !0;
 
   var chapters = (await $(t)).cp;
-  if (!chapters || chapters.length === 0) {
-    N("ERR_ECA", "FASE1: cp vuoto");
-    return !1;
-  }
-  var sel = chapters[e];
-  if (!sel) {
-    N("ERR_ECA", "FASE1: capIdx vuoto");
-    return !1;
-  }
+  var sel = chapters && chapters.length ? chapters[e] : null;
   var b = await B();
-  var el = P(sel, b) || P(sel, document);
+  var el = sel ? P(sel, b) || P(sel, document) : null;
+  if (!el || el === document.body) el = resolveCapElByIndex(t, e);
   if (!el) {
-    N("ERR_ECA", "FASE1: el non trovato");
+    N("ERR_ECA", `FASE1: capitolo ${t}_${e} non risolto`);
     return !1;
   }
   if (el === document.body || el.tagName === "BODY") return !0;
 
-  // Clicca UNA SOLA VOLTA sul target (lo span o il trigger verificato in console)
-  var clickTarget = el.querySelector('span') || el.querySelector('.cursor-pointer') || el;
+  // Clicca UNA SOLA VOLTA sul target (priorità al trigger .cursor-pointer di Vue)
+  var clickTarget = el.querySelector('.cursor-pointer') || el.querySelector('span') || el;
   try { clickTarget.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
   await x(200);
-  try {
-    clickTarget.click();
-  } catch (_) {
-    T(clickTarget);
-  }
+
+  // Essendo un toggle si clicca UNA SOLA VOLTA per tentativo e si verifica prima di
+  // riprovare: due click di fila riaprirebbero e richiuderebbero il capitolo.
+  // (Nt e s() ritentano già: qui bastano due varianti di click)
+  try { clickTarget.click(); } catch (_) {}
+  await x(1500);
+  if (await c(t, e)) return !0;
+  T(clickTarget);
   await x(1500);
   return !0;
 }
@@ -1351,7 +1551,8 @@ async function Mt(c, l, s, u) {
   var d = await At();
   let n = null,
     i = null,
-    o = null;
+    o = null,
+    noVideo = 0;
   var f = await ft(await pt());
 
   for (;;) {
@@ -1360,6 +1561,18 @@ async function Mt(c, l, s, u) {
 
     var playing = await b(d);
     if (!playing) {
+      // b() restituisce false anche quando il player non è ANCORA montato: dopo il
+      // cambio lezione può metterci qualche secondo. Uscire subito farebbe abbandonare
+      // la lezione dopo ~3s e, a catena, correre via per lezioni e capitoli.
+      var vNow = document.getElementById("video") || document.querySelector("video");
+      if (!vNow || (!vNow.ended && !(isFinite(vNow.duration) && vNow.duration > 0))) {
+        if (++noVideo <= 8) {
+          if (noVideo === 1) M("WAIT_VIDEO", "Player non ancora pronto: attendo invece di saltare");
+          await x(3e3);
+          continue;
+        }
+        M("SKIP_NO_VIDEO", "Nessun player pronto dopo ~50s: passo alla lezione successiva");
+      }
       if (!S) {
         var h = videoEl && isFinite(videoEl.duration) && videoEl.duration > 0
           ? videoEl.duration - videoEl.currentTime
@@ -1371,6 +1584,7 @@ async function Mt(c, l, s, u) {
       }
       break;
     }
+    noVideo = 0;
 
     if (_ && videoEl?.muted) {
       videoEl.muted = !1;
