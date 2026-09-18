@@ -1419,15 +1419,26 @@ async function s(n, i) {
     }
   }
 }
+function triggerFullClick(el) {
+  if (!el) return;
+  try { el.scrollIntoView({ behavior: "auto", block: "center" }); } catch (_) {}
+  var rect = el.getBoundingClientRect();
+  var cx = rect.left + rect.width / 2;
+  var cy = rect.top + rect.height / 2;
+  var opts = { bubbles: true, cancelable: true, view: window, clientX: cx, clientY: cy };
+  try { el.dispatchEvent(new PointerEvent("pointerdown", opts)); } catch (_) {}
+  try { el.dispatchEvent(new MouseEvent("mousedown", opts)); } catch (_) {}
+  try { el.dispatchEvent(new PointerEvent("pointerup", opts)); } catch (_) {}
+  try { el.dispatchEvent(new MouseEvent("mouseup", opts)); } catch (_) {}
+  try { el.click(); } catch (_) {}
+  try { el.dispatchEvent(new MouseEvent("click", opts)); } catch (_) {}
+}
+
 function dispatchClick(target) {
   if (!target) return;
-  try { target.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
-  try {
-    target.click();
-  } catch (_) {
-    T(target);
-  }
+  triggerFullClick(target);
 }
+
 async function Dt(t, e) {
   // Se è già aperto, NON cliccare (essendo un toggle, cliccare lo chiuderebbe!)
   if (await c(t, e)) return !0;
@@ -1443,19 +1454,17 @@ async function Dt(t, e) {
   }
   if (el === document.body || el.tagName === "BODY") return !0;
 
-  // Clicca UNA SOLA VOLTA sul target (priorità al trigger .cursor-pointer di Vue)
-  var clickTarget = el.querySelector('.cursor-pointer') || el.querySelector('span') || el;
-  try { clickTarget.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
-  await x(300);
-
-  // Esegui UN SINGOLO click con coordinate reali (come da reference originale)
-  T(clickTarget);
-  await x(2000);
+  var clickTarget = el.querySelector('.cursor-pointer') || el.querySelector('span') || el.firstElementChild || el;
+  triggerFullClick(clickTarget);
+  await x(1500);
   if (await c(t, e)) return !0;
 
-  // Solo se T() non ha aperto l'accordion, prova il click nativo
-  try { clickTarget.click(); } catch (_) {}
-  await x(2000);
+  var spanTarget = el.querySelector('span');
+  if (spanTarget && spanTarget !== clickTarget) {
+    triggerFullClick(spanTarget);
+    await x(1500);
+  }
+
   return await c(t, e);
 }
 async function Nt(e, a, r = 3) {
