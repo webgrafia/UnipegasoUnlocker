@@ -1179,11 +1179,12 @@ async function isChapterExpanded(e, a) {
     if (!capEl || capEl === document.body) capEl = resolveCapElByIndex(e, a);
     if (!capEl || capEl === document.body) return !1;
 
-    // Se il capitolo sta ancora caricando (mostra loader o "Loading..."), NON è ancora pronto/espanso
-    var txt = (capEl.textContent || "").trim();
-    var isLoading = /loading/i.test(txt) || !!capEl.querySelector('.loader, .loading, [class*="spin"], [class*="loader"]');
+    // Se ha chevron-up, il capitolo è APERTO (o si sta aprendo): NON RICLICCARE!
+    if (capEl.querySelector('[id*="chevron-up"], path[d*="896.707"]')) {
+      return !0;
+    }
 
-    // Righe di lezione effettivamente visibili = capitolo aperto e pronto
+    // Righe di lezione effettivamente visibili = capitolo aperto
     var content = capEl.querySelector('.border-t.text-platform-text') || capEl.querySelector('.border-t');
     if (content) {
       var rows = content.querySelectorAll(
@@ -1192,16 +1193,6 @@ async function isChapterExpanded(e, a) {
       for (var j = 0; j < rows.length; j++) {
         if (isElVisible(rows[j])) return !0;
       }
-    }
-
-    // Se è in stato di caricamento asincrono, non considerarlo pronto
-    if (isLoading) {
-      return !1;
-    }
-
-    // Se ha chevron-up e non sta caricando
-    if (capEl.querySelector('[id*="chevron-up"], path[d*="896.707"]')) {
-      if (content || capEl.children.length > 1) return !0;
     }
 
     // Se ha chevron-down (e nessuna riga visibile), il capitolo è CHIUSO
@@ -1315,19 +1306,17 @@ async function s(n, i) {
 
   let e = [];
   let tentativi = 0;
-  await x(1500);
-  for (let t = 0; t < 8; t++) {
+  await x(2500);
+  for (let t = 0; t < 10; t++) {
     tentativi = t + 1;
     window.__ulTry = t; // marca il tentativo nei log di l()
     e = await l(n, i);
     if (e.length > 0) break;
-    if (t > 0) {
-      var isExp = await isChapterExpanded(n, i);
-      if (!isExp) {
-        await Dt(n, i);
-      }
+    var isExp = await isChapterExpanded(n, i);
+    if (!isExp) {
+      await Dt(n, i);
     }
-    await x(1500);
+    await x(2500);
   }
 
   if (0 === e.length) {
@@ -1457,17 +1446,17 @@ async function Dt(t, e) {
   // Clicca UNA SOLA VOLTA sul target (priorità al trigger .cursor-pointer di Vue)
   var clickTarget = el.querySelector('.cursor-pointer') || el.querySelector('span') || el;
   try { clickTarget.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (_) {}
-  await x(200);
+  await x(300);
 
-  // Essendo un toggle si clicca UNA SOLA VOLTA per tentativo e si verifica prima di
-  // riprovare: due click di fila riaprirebbero e richiuderebbero il capitolo.
-  // (Nt e s() ritentano già: qui bastano due varianti di click)
-  try { clickTarget.click(); } catch (_) {}
-  await x(1500);
-  if (await c(t, e)) return !0;
+  // Esegui UN SINGOLO click con coordinate reali (come da reference originale)
   T(clickTarget);
-  await x(1500);
-  return !0;
+  await x(2000);
+  if (await c(t, e)) return !0;
+
+  // Solo se T() non ha aperto l'accordion, prova il click nativo
+  try { clickTarget.click(); } catch (_) {}
+  await x(2000);
+  return await c(t, e);
 }
 async function Nt(e, a, r = 3) {
   for (let t = 0; t < r; t++) {
